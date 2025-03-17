@@ -19,17 +19,20 @@ const Main = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        console.log(JSON.stringify(formData))
         try {
-            const response = await fetch("http://localhost:3000/submit", {
+            const response = await fetch("http://127.0.0.1:5000/expenses", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${localStorage.getItem("token")}`
+                },
                 body: JSON.stringify(formData)
             });
+
             if (response.ok) {
-                alert("Form submitted successfully!");
+                alert("Expense submitted successfully!");
             } else {
-                alert("Error submitting form.");
+                alert("Error submitting expense.");
             }
         } catch (error) {
             alert("Failed to connect to the server.");
@@ -44,6 +47,34 @@ const Main = () => {
 
     const addNewItem = () => {
         setFormData({ ...formData, items: [...formData.items, { name: "", amount: "" }] });
+    };
+
+    const uploadReceipt = async (file) => {
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append("receipt", file);
+
+        try {
+            const response = await fetch("http://127.0.0.1:5000/upload-receipt", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${localStorage.getItem("token")}`
+                },
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                alert("Receipt uploaded successfully!");
+            } else {
+                alert("Upload failed: " + data.error);
+            }
+        } catch (error) {
+            console.error("Upload error:", error);
+            alert("Error uploading receipt.");
+        }
     };
 
     return (
@@ -119,7 +150,7 @@ const Main = () => {
                 </div>
                 <div className="upload-section">
                     <h2>Upload File</h2>
-                    <input type="file" className="input-field" />
+                    <input type="file" className="input-field" onChange={(e) => uploadReceipt(e.target.files[0])} />
                 </div>
             </div>
             <button onClick={() => navigate("/history")} className="input-field previous-uploads-button">

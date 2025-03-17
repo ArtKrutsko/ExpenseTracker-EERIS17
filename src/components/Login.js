@@ -10,14 +10,19 @@ const Login = () => {
     const handleLogin = async () => {
         if (username && password) {
             try {
-                // TODO: API request to return userId
-                // const response = await someApiLoginFunction(username, password);
-                let response = {userId: 101}
-                if (response && response.userId) {
-                    localStorage.setItem("userId", response.userId);
-                    navigate("/main");
+                const response = await fetch("http://127.0.0.1:5000/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email: username, password: password }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    localStorage.setItem("token", data.token);
+                    navigate("/main");  // Redirect to Main page
                 } else {
-                    alert("Invalid username or password");
+                    alert(data.error || "Invalid username or password");
                 }
             } catch (error) {
                 console.error("Login failed", error);
@@ -34,7 +39,7 @@ const Login = () => {
             <input 
                 type="text" 
                 className="input-field" 
-                placeholder="Username" 
+                placeholder="Email" 
                 value={username} 
                 onChange={(e) => setUsername(e.target.value)}
             />

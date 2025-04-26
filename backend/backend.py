@@ -7,12 +7,15 @@ import pytesseract
 import cv2
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
+
+# Set JWT token to expire in 1 day
 
 # Initialize Flask app
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}}, supports_credentials=True)
 
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=1)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:rhenmrj@localhost/eeris'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_SECRET_KEY'] = 'your_secret_key'
@@ -145,6 +148,7 @@ def upload_receipt():
 
     return jsonify({"message": "Receipt uploaded successfully!", "extracted_data": extracted_data})
 
+
 @app.route('/manual-receipt', methods=['POST'])
 @jwt_required()
 def create_receipt_with_items():
@@ -155,22 +159,33 @@ def create_receipt_with_items():
 
     user_id = int(get_jwt_identity())
 
+    # ✅ Safely filter items before processing
+    items = data.get('items', [])
+    valid_items = [
+        item for item in items
+        if item.get('amount') not in [None, '', 0]
+    ]
+
+    # ✅ Sum only valid items
+    total_amount = sum(
+        float(item['amount']) for item in valid_items
+    )
+
     # 1. Insert new Receipt record
     new_receipt = Receipt(
         user_id=user_id,
-        store_name=data.get('store'),    # previously 'store' in Expense
-        category=data.get('category'),   # previously 'category'
-        amount=sum(float(item.get('amount', 0)) for item in data.get('items', []))  # sum of items
+        store_name=data.get('store'),
+        category=data.get('category'),
+        amount=total_amount
     )
     db.session.add(new_receipt)
     db.session.flush()  # Get new_receipt.id before inserting items
 
     # 2. Insert Receipt Items
-    items = data.get('items', [])
-    for item in items:
+    for item in valid_items:
         receipt_item = ReceiptItem(
             receipt_id=new_receipt.id,
-            item_name=item.get('name'),
+            item_name=item.get('name', 'Unknown Item'),
             amount=float(item.get('amount'))
         )
         db.session.add(receipt_item)
@@ -200,18 +215,143 @@ def fetch_receipts():
     else:
         receipts = Receipt.query.filter_by(user_id=user_id).all()
 
-
     receipt_list = [{
         "id": receipt.id,
         "user": receipt.user_id,
         "uploadDate": receipt.uploaded_at.isoformat(),
         "amount": str(receipt.amount) if receipt.amount else "0.00",
         "category": receipt.category,
-        "storeName": receipt.store_name or "Unknown Store"
+        "storeName": receipt.store_name or "Unknown Store",
+        "status": receipt.status
     } for receipt in receipts]
 
-    print(receipt_list)
-    return jsonify(receipt_list), 200
+    return jsonify({
+        "receipts": receipt_list,
+        "role": role.role.lower()
+    }), 200
+
+
+@app.route('/statistics', methods=['GET'])
+@jwt_required()
+def get_statistics():
+    identity = get_jwt_identity()
+    user_id = int(identity)
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    role = UserRole.query.get(user.role_id)
+    if not role:
+        return jsonify({"error": "User role not found"}), 404
+
+    # Supervisor sees all receipts, employee sees only their own
+    if role.role.lower() == 'supervisor':
+        receipts = Receipt.query.all()
+    else:
+        receipts = Receipt.query.filter_by(user_id=user_id).all()
+
+    # ✅ EXCLUDE rejected receipts from calculations
+    valid_receipts = [r for r in receipts if r.status.lower() != 'rejected']
+
+    # Group and Sum by Category
+    category_totals = {}
+    for r in valid_receipts:
+        if r.category not in category_totals:
+            category_totals[r.category] = 0.0
+        if r.amount:
+            category_totals[r.category] += float(r.amount)
+
+    response = {
+        "category_totals": category_totals
+    }
+
+    # Supervisor extras: by store and by user
+    if role.role.lower() == 'supervisor':
+        # Group and Sum by Store
+        store_totals = {}
+        store_categories = {}
+
+        for r in valid_receipts:
+            store = r.store_name or "Unknown Store"
+            if store not in store_totals:
+                store_totals[store] = 0.0
+                store_categories[store] = {}
+
+            if r.amount:
+                store_totals[store] += float(r.amount)
+
+                cat = r.category
+                if cat not in store_categories[store]:
+                    store_categories[store][cat] = 0.0
+                store_categories[store][cat] += float(r.amount)
+
+        # Find the main (max) category for each store
+        store_main_categories = {}
+        for store, cats in store_categories.items():
+            if cats:  # ✅ only if there are categories
+                main_cat = max(cats.items(), key=lambda x: x[1])[0]
+                store_main_categories[store] = main_cat
+            else:
+                store_main_categories[store] = "unknown"  # ✅ fallback if no categories
+
+        response["store_totals"] = store_totals
+        response["store_main_categories"] = store_main_categories
+
+    # ✅ NEW: Group and Sum by User
+    user_totals = {}
+    for r in valid_receipts:
+        user_obj = User.query.get(r.user_id)
+        user_name = user_obj.name if user_obj else "Unknown User"
+
+        if user_name not in user_totals:
+            user_totals[user_name] = 0.0
+        if r.amount:
+            user_totals[user_name] += float(r.amount)
+
+    response["user_totals"] = user_totals
+
+    return jsonify(response), 200
+
+
+@app.route('/receipt-details/<int:receipt_id>', methods=['GET'])
+@jwt_required()
+def get_receipt_details(receipt_id):
+    receipt = Receipt.query.get(receipt_id)
+
+    if not receipt:
+        return jsonify({"error": "Receipt not found"}), 404
+
+    # Fetch items
+    items = ReceiptItem.query.filter_by(receipt_id=receipt_id).all()
+
+    # Fetch user who submitted
+    user = User.query.get(receipt.user_id)
+
+    return jsonify({
+        "items": [{"item_name": item.item_name, "amount": str(item.amount)} for item in items],
+        "user_name": user.name if user else "Unknown User"
+    }), 200
+
+@app.route('/update-receipt-status/<int:receipt_id>', methods=['POST'])
+@jwt_required()
+def update_receipt_status(receipt_id):
+    data = request.get_json()
+    new_status = data.get('status')
+
+    if new_status not in ['Approved', 'Rejected']:
+        return jsonify({"error": "Invalid status"}), 400
+
+    receipt = Receipt.query.get(receipt_id)
+    if not receipt:
+        return jsonify({"error": "Receipt not found"}), 404
+
+    receipt.status = new_status
+    db.session.commit()
+
+    return jsonify({"message": f"Receipt status updated to {new_status}!"}), 200
+
+
 
 # App Runner
 if __name__ == '__main__':

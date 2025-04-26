@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import "../styles/styles.css";  // ✅ Make sure to import your stylesheet if not imported globally
 
 function Register() {
   const [name, setName] = useState('');
@@ -35,10 +36,11 @@ function Register() {
   };
 
   return (
-    <div style={{ maxWidth: '400px', margin: 'auto', marginTop: '50px' }}>
+    <div className="container" style={{ marginTop: '20px', width: '450px' }}>
       <h2>Register</h2>
       <form onSubmit={handleSubmit}>
         <input
+          className="input-field"
           type="text"
           placeholder="Full Name"
           value={name}
@@ -46,6 +48,7 @@ function Register() {
           required
         />
         <input
+          className="input-field"
           type="email"
           placeholder="Email"
           value={email}
@@ -53,13 +56,18 @@ function Register() {
           required
         />
         <input
+          className="input-field"
           type="password"
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
         />
-        <select value={role_id} onChange={(e) => setRoleId(Number(e.target.value))}>
+        <select
+          className="input-field"
+          value={role_id}
+          onChange={(e) => setRoleId(Number(e.target.value))}
+        >
           <option value={1}>Employee</option>
           <option value={2}>Supervisor</option>
           <option value={3}>Admin</option>

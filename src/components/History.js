@@ -53,6 +53,7 @@ const History = () => {
                 if (response.ok) {
                     const data = await response.json();
                     setReceipts(data);
+                    console.log(data);
                 } else {
                     console.error("Failed to fetch receipts");
                 }
@@ -65,7 +66,6 @@ const History = () => {
     }, []);
 
     const localUser = parseInt(localStorage.getItem("userId"), 10);
-    const userReceipts = receipts.filter((receipt) => receipt.user === localUser);
 
 
     return (
@@ -74,8 +74,8 @@ const History = () => {
                 <div className="history-left">
                     <h2>Previous Uploads</h2>
                     <div className="receipts-listt">
-                        {userReceipts.length > 0 ? (
-                            userReceipts.map((receipt) => <ReceiptTile key={receipt.id} receipt={receipt} />)
+                        {receipts.length > 0 ? (
+                            receipts.map((receipt) => <ReceiptTile key={receipt.id} receipt={receipt} />)
                         ) : (
                             <p>No receipts found.</p>
                             // TODO: once the receipt is clicked it will expand to show all items

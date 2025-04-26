@@ -1,30 +1,28 @@
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
-from flask_cors import CORS  # ✅ NEW: Allow cross-origin requests
+from flask_cors import CORS
 import bcrypt
 import pytesseract
 import cv2
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}}, supports_credentials=True)  # ✅ NEW: Enable CORS so frontend can reach backend
+CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}}, supports_credentials=True)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:rhenmrj@localhost/eeris'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_SECRET_KEY'] = 'your_secret_key'
 app.config['JWT_IDENTITY_CLAIM'] = 'identity'
 
-
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
 
 UPLOAD_FOLDER = "uploads"
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Models
 class UserRole(db.Model):
@@ -34,6 +32,7 @@ class UserRole(db.Model):
     description = db.Column(db.Text)
 
 class User(db.Model):
+    __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     role_id = db.Column(db.Integer, db.ForeignKey('user_roles.id'), nullable=False)
@@ -41,42 +40,31 @@ class User(db.Model):
     password_hash = db.Column(db.String(200), nullable=False)
 
 class Receipt(db.Model):
-    __tablename__ = 'receipts'   # <-- ADD this
+    __tablename__ = 'receipts'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     category = db.Column(db.String(50), default='Unknown', nullable=False)
     amount = db.Column(db.Float, nullable=True)
     status = db.Column(db.String(20), default='Pending', nullable=False)
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    extracted_text = db.Column(db.Text, nullable=True)
+    extracted_text = db.Column(db.Text)
     store_name = db.Column(db.String(50), default='Unknown')
 
-
-class ReceiptAudit(db.Model):
+class ReceiptItem(db.Model):
+    __tablename__ = 'receipt_items'
     id = db.Column(db.Integer, primary_key=True)
-    receipt_id = db.Column(db.Integer, db.ForeignKey('receipt.id'), nullable=False)
-    supervisor_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    action = db.Column(db.String(20), nullable=False)
-    action_timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    comments = db.Column(db.Text, nullable=True)
-
-class Expense(db.Model):
-    __tablename__ = 'expenses'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer)
-    store = db.Column(db.String(255), nullable=False)
-    category = db.Column(db.String(100), nullable=False)
-    subcategory = db.Column(db.String(100))
-    created_at = db.Column(db.DateTime, server_default=db.func.now())
-
-class ExpenseItem(db.Model):
-    __tablename__ = 'expense_items'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    expense_id = db.Column(db.Integer, db.ForeignKey('expenses.id', ondelete="CASCADE"), nullable=False)
+    receipt_id = db.Column(db.Integer, db.ForeignKey('receipts.id', ondelete="CASCADE"), nullable=False)
     item_name = db.Column(db.String(255), nullable=False)
     amount = db.Column(db.Numeric(10, 2), nullable=False)
+
+class ReceiptAudit(db.Model):
+    __tablename__ = 'receipt_audit'
+    id = db.Column(db.Integer, primary_key=True)
+    receipt_id = db.Column(db.Integer, db.ForeignKey('receipts.id', ondelete="CASCADE"), nullable=False)
+    supervisor_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete="SET NULL"))
+    action = db.Column(db.String(20), nullable=False)
+    action_timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    comments = db.Column(db.Text)
 
 # OCR text extractor
 def extract_text(image_path):
@@ -150,55 +138,54 @@ def upload_receipt():
         user_id=user_id,
         amount=extracted_data["amount"],
         extracted_text=extracted_data["raw_text"],
-        store_name=extracted_data["vendor"],  # ✅ Save the vendor as store name
+        store_name=extracted_data["vendor"],
     )
     db.session.add(new_receipt)
     db.session.commit()
 
     return jsonify({"message": "Receipt uploaded successfully!", "extracted_data": extracted_data})
 
-
-@app.route('/expenses', methods=['POST'])
+@app.route('/manual-receipt', methods=['POST'])
 @jwt_required()
-def create_expense():
+def create_receipt_with_items():
     data = request.get_json()
 
     if not data:
         return jsonify({"error": "Invalid or missing JSON data"}), 400
-    # Get the user info from JWT token
-    user_id = get_jwt_identity()
 
-    # 1. Insert new Expense record
-    expense = Expense(
-        user_id=int(user_id),  # <--- cast back to int
-        store=data.get('store'),
-        category=data.get('category'),
-        subcategory=data.get('subcategory')
+    user_id = int(get_jwt_identity())
+
+    # 1. Insert new Receipt record
+    new_receipt = Receipt(
+        user_id=user_id,
+        store_name=data.get('store'),    # previously 'store' in Expense
+        category=data.get('category'),   # previously 'category'
+        amount=sum(float(item.get('amount', 0)) for item in data.get('items', []))  # sum of items
     )
+    db.session.add(new_receipt)
+    db.session.flush()  # Get new_receipt.id before inserting items
 
-    db.session.add(expense)
-    db.session.flush()  # flush to get expense.id before inserting items
-
-    # 2. Insert each item linked to that expense
+    # 2. Insert Receipt Items
     items = data.get('items', [])
     for item in items:
-        expense_item = ExpenseItem(
-            expense_id=expense.id,
+        receipt_item = ReceiptItem(
+            receipt_id=new_receipt.id,
             item_name=item.get('name'),
-            amount=float(item.get('amount'))  # careful: convert string to float
+            amount=float(item.get('amount'))
         )
-        db.session.add(expense_item)
+        db.session.add(receipt_item)
 
-    # 3. Finalize transaction
+    # 3. Commit everything
     db.session.commit()
 
-    return jsonify({"message": "Expense submitted successfully!"}), 201
+    return jsonify({"message": "Receipt and items submitted successfully!"}), 201
+
 
 @app.route('/fetch-receipts', methods=['GET'])
 @jwt_required()
 def fetch_receipts():
     identity = get_jwt_identity()
-    user_id = int(identity)  # Assuming now JWT identity is just user id
+    user_id = int(identity)
 
     user = User.query.get(user_id)
     if not user:
@@ -208,23 +195,22 @@ def fetch_receipts():
     if not role:
         return jsonify({"error": "User role not found"}), 404
 
-    # Supervisor sees all receipts, Employee sees only their own
     if role.role.lower() == 'supervisor':
         receipts = Receipt.query.all()
     else:
         receipts = Receipt.query.filter_by(user_id=user_id).all()
 
-    receipt_list = []
-    for receipt in receipts:
-        receipt_list.append({
-            "id": receipt.id,
-            "user": receipt.user_id,
-            "uploadDate": receipt.uploaded_at.isoformat(),
-            "amount": str(receipt.amount) if receipt.amount else "0.00",
-            "category": receipt.category,
-            "storeName": receipt.store_name if receipt.store_name else "Unknown Store"  # ✅ Use real store name
-        })
 
+    receipt_list = [{
+        "id": receipt.id,
+        "user": receipt.user_id,
+        "uploadDate": receipt.uploaded_at.isoformat(),
+        "amount": str(receipt.amount) if receipt.amount else "0.00",
+        "category": receipt.category,
+        "storeName": receipt.store_name or "Unknown Store"
+    } for receipt in receipts]
+
+    print(receipt_list)
     return jsonify(receipt_list), 200
 
 # App Runner

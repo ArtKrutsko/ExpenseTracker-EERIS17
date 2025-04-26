@@ -1,5 +1,5 @@
 -- Drop existing tables if they exist
-DROP TABLE IF EXISTS receipt_audit, receipts, users, permissions, user_roles CASCADE;
+DROP TABLE IF EXISTS receipt_audit, receipts, users, permissions, user_roles, expenses, expense_items CASCADE;
 
 -- Create User Roles Table
 CREATE TABLE user_roles (
@@ -50,7 +50,8 @@ CREATE TABLE receipts (
     amount DECIMAL(10,2) DEFAULT NULL,
     status VARCHAR(20) CHECK (status IN ('Pending', 'Approved', 'Rejected')) DEFAULT 'Pending',
     uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    extracted_text TEXT
+    extracted_text TEXT,
+    store_name VARCHAR(50) DEFAULT 'Unknown'
 );
 
 -- Create Audit Log for Approvals/Rejections
@@ -69,3 +70,21 @@ VALUES
     ('Alice Employee', (SELECT id FROM user_roles WHERE role = 'Employee'), 'alice@example.com', 'hashed_password_1'),
     ('Bob Supervisor', (SELECT id FROM user_roles WHERE role = 'Supervisor'), 'bob@example.com', 'hashed_password_2'),
     ('Charlie Admin', (SELECT id FROM user_roles WHERE role = 'Admin'), 'charlie@example.com', 'hashed_password_3');
+
+-- Main table: expenses
+CREATE TABLE expenses (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER,  -- Optional: if you want to track who submitted
+    store VARCHAR(255) NOT NULL,
+    category VARCHAR(100) NOT NULL,
+    subcategory VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Subtable: items inside each expense
+CREATE TABLE expense_items (
+    id SERIAL PRIMARY KEY,
+    expense_id INTEGER REFERENCES expenses(id) ON DELETE CASCADE,
+    item_name VARCHAR(255) NOT NULL,
+    amount NUMERIC(10, 2) NOT NULL
+);

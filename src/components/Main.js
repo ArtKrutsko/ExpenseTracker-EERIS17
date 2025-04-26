@@ -19,6 +19,7 @@ const Main = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        console.log(formData);  // <-- add this
         try {
             const response = await fetch("http://127.0.0.1:5000/expenses", {
                 method: "POST",
@@ -28,10 +29,12 @@ const Main = () => {
                 },
                 body: JSON.stringify(formData)
             });
-
+    
             if (response.ok) {
                 alert("Expense submitted successfully!");
             } else {
+                const errorText = await response.text();
+                console.log('Backend error:', errorText);
                 alert("Error submitting expense.");
             }
         } catch (error) {

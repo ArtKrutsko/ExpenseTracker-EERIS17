@@ -4,6 +4,7 @@ from flask_jwt_extended import JWTManager, create_access_token, jwt_required, ge
 from flask_cors import CORS
 import bcrypt
 import pytesseract
+# pylint: disable=no-member
 import cv2
 import os
 import re
@@ -72,21 +73,79 @@ class ReceiptAudit(db.Model):
 # OCR text extractor
 def extract_text(image_path):
     image = cv2.imread(image_path)
+    if image is None:
+        return {"error": "Could not read the image."}
+
     text = pytesseract.image_to_string(image)
 
+    # Extract total amount
     amount_match = re.search(r"\$\s?(\d+\.\d{2})", text)
-    amount = float(amount_match.group(1)) if amount_match else None
+    total_amount = float(amount_match.group(1)) if amount_match else None
 
-    date_match = re.search(r"(\d{1,2}/\d{1,2}/\d{4}|\d{4}-\d{1,2}-\d{1,2})", text)
-    extracted_date = date_match.group(0) if date_match else None
+    # Extract store name (first line)
+    store_name = text.split('\n')[0].strip() if text else 'Unknown'
 
-    vendor_name = "\n".join(text.split("\n")[:3]).strip()
+    # Extract receipt date
+    date_match = re.search(r"(\d{2}/\d{2}/\d{4})", text)
+    receipt_date = date_match.group(1) if date_match else None
+
+    # Smart category detection
+    def detect_category(text):
+        text_lower = text.lower()
+        if any(keyword in text_lower for keyword in ["walmart", "target", "publix", "grocery", "supermarket", "aldi", "costco"]):
+            return "Groceries"
+        elif any(keyword in text_lower for keyword in ["airlines", "flight", "delta", "american airlines", "united airlines", "airport"]):
+            return "Flight"
+        elif any(keyword in text_lower for keyword in ["uber", "lyft", "taxi", "transport", "bus", "train", "subway"]):
+            return "Transportation"
+        elif any(keyword in text_lower for keyword in ["home depot", "lowe's", "hardware", "tools", "material", "construction"]):
+            return "Materials/Tools"
+        elif any(keyword in text_lower for keyword in ["hotel", "motel", "inn", "resort", "bnb"]):
+            return "Lodging"
+        elif any(keyword in text_lower for keyword in ["restaurant", "dining", "food", "pizza", "burger", "cafe", "steakhouse"]):
+            return "Meals"
+        else:
+            return "Other"
+
+    category = detect_category(text)
+
+    # Extract items and promotions
+    items = []
+    lines = text.split('\n')
+    last_item_name = None
+    i = 0
+
+    while i < len(lines):
+        line = lines[i].strip()
+        line_lower = line.lower()
+
+        if any(keyword in line_lower for keyword in ["order total", "sales tax", "grand total", "change", "amount", "balance", "payment", "cash", "subtotal", "savings summary", "special price savings"]):
+            break
+
+        if "promotion" in line_lower:
+            match = re.search(r"promotion\s+\-?\$?\s*(\d+\.\d{2})", line_lower)
+            if match and last_item_name:
+                promo_price = float(match.group(1))
+                items.append((f"Promotion for {last_item_name}", -abs(promo_price)))
+            i += 1
+            continue
+
+        match = re.search(r"(.+?)\s+\$?\s*(\d+\.\d{2})", line)
+        if match:
+            item_name = match.group(1).strip()
+            item_price = float(match.group(2))
+            items.append((item_name, item_price))
+            last_item_name = item_name
+
+        i += 1
 
     return {
         "raw_text": text,
-        "amount": amount,
-        "date": extracted_date,
-        "vendor": vendor_name
+        "amount": total_amount,
+        "store_name": store_name,
+        "receipt_date": receipt_date,
+        "category": category,
+        "items": items
     }
 
 # Routes
@@ -137,16 +196,32 @@ def upload_receipt():
 
     extracted_data = extract_text(file_path)
 
+    if "error" in extracted_data:
+        return jsonify({"error": extracted_data["error"]}), 400
+
+    # Insert the Receipt first
     new_receipt = Receipt(
         user_id=user_id,
         amount=extracted_data["amount"],
         extracted_text=extracted_data["raw_text"],
-        store_name=extracted_data["vendor"],
+        store_name=extracted_data["store_name"],
+        category=extracted_data["category"]
     )
     db.session.add(new_receipt)
+    db.session.flush()  # Get receipt ID
+
+    # Insert the Items
+    for item_name, item_price in extracted_data["items"]:
+        receipt_item = ReceiptItem(
+            receipt_id=new_receipt.id,
+            item_name=item_name,
+            amount=item_price
+        )
+        db.session.add(receipt_item)
+
     db.session.commit()
 
-    return jsonify({"message": "Receipt uploaded successfully!", "extracted_data": extracted_data})
+    return jsonify({"message": "Receipt uploaded and processed successfully!", "extracted_data": extracted_data})
 
 
 @app.route('/manual-receipt', methods=['POST'])

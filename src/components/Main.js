@@ -234,7 +234,29 @@ const Main = () => {
                 >
                     Admin Panel
                 </button>
+                
             )}
+
+            <button 
+                onClick={() => {
+                    const currentPassword = prompt("Enter your current password:");
+                    const newPassword = prompt("Enter your new password:");
+                    if (currentPassword && newPassword) {
+                        changePassword(currentPassword, newPassword);
+                    }
+                }}
+                className="input-field previous-uploads-button"
+            >
+                Change Password
+            </button>
+
+            <button 
+                onClick={fetchAuditLogs}
+                className="input-field previous-uploads-button"
+            >
+                View Audit Logs
+            </button>
+            
 
         </div>
     );

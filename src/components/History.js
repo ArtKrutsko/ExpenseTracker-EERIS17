@@ -26,8 +26,6 @@ const History = () => {
     const [isSupervisor, setIsSupervisor] = useState(false);
 
     const navigate = useNavigate();
-
-    // TODO: write API request to database. Sample below:
     
     const fetchReceipts = async () => {
         try {
@@ -43,9 +41,11 @@ const History = () => {
                 const data = await response.json();
                 setReceipts(data.receipts);
                 setIsSupervisor(data.role === "supervisor");
-                if (data.user_totals) { // ✅ Supervisor-only extra chart
+                console.log(data)
+                if (data.user_totals) {
                     setUserTotals(data.user_totals);
                 }
+                console.log(userTotals)
             } else {
                 console.error("Failed to fetch receipts");
             }
@@ -72,7 +72,10 @@ const History = () => {
                     setCategoryData(data.category_totals);
                     if (data.store_totals) {
                         setStoreData(data.store_totals);
-                        setStoreCategories(data.store_main_categories);  // NEW
+                        setStoreCategories(data.store_main_categories);
+                        if (data.user_totals) {
+                            setUserTotals(data.user_totals);
+                        }
                     }
                 } else {
                     console.error("Failed to fetch statistics");
@@ -102,7 +105,7 @@ const History = () => {
                                 <ReceiptTile 
                                     key={receipt.id} 
                                     receipt={receipt} 
-                                    isSupervisor
+                                    isSupervisor={isSupervisor}
                                     refreshReceipts={fetchReceipts} 
                                 />
                             ))
@@ -208,11 +211,12 @@ const History = () => {
                                 }
                             ]}
                             layout={{
-                                title: 'Spending by Users',
+                                title: 'Spending by Category',
+                                margin: { t: 50, l: 10, r: 10, b: 10 },
                                 autosize: true,
-                                margin: { t: 50, l: 30, r: 10, b: 50 },
+                                legend: { orientation: "h", y: -0.2 },
                                 paper_bgcolor: "rgba(0,0,0,0)",
-                                plot_bgcolor: "rgba(0,0,0,0)",
+                                plot_bgcolor: "rgba(0,0,0,0)"
                             }}
                             useResizeHandler={true}
                             style={{ width: "100%", height: "300px" }}

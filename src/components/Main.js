@@ -32,6 +32,7 @@ const Main = () => {
     
             if (response.ok) {
                 alert("Expense submitted successfully!");
+                window.location.reload();
             } else {
                 const errorText = await response.text();
                 console.log('Backend error:', errorText);
@@ -82,6 +83,18 @@ const Main = () => {
 
     return (
         <div>
+            <div className="logout-container">
+                <button 
+                    className="logout-button"
+                    onClick={() => {
+                        localStorage.removeItem("token");
+                        navigate("/");
+                    }}
+                >
+                    Logout
+                </button>
+            </div>
+
             <div className="main-container">
                 <div className="form-section">
                     <h2>Expense Form</h2>
@@ -159,6 +172,15 @@ const Main = () => {
             <button onClick={() => navigate("/history")} className="input-field previous-uploads-button">
                 Previous Uploads
             </button>
+                        {localStorage.getItem("role") === "admin" && (
+                <button 
+                    className="input-field previous-uploads-button"
+                    onClick={() => navigate("/admin")}
+                >
+                    Admin Panel
+                </button>
+            )}
+
         </div>
     );
 };

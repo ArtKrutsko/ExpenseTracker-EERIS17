@@ -20,7 +20,8 @@ const Login = () => {
 
                 if (response.ok) {
                     localStorage.setItem("token", data.token);
-                    navigate("/main");  // Redirect to Main page
+                    localStorage.setItem("role", data.role);  // Save role
+                    navigate("/main");
                 } else {
                     alert(data.error || "Invalid username or password");
                 }

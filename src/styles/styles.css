@@ -148,3 +148,29 @@ button:hover {
 .reject-button:hover {
     background-color: #c82333;
 }
+
+.logout-container {
+    position: absolute;
+    top: 20px;
+    right: 30px;
+}
+
+.logout-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 16px;
+    background-color: #dc3545; /* Red */
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.3s;
+    height: 40px;
+    width: 5vw;
+}
+
+.logout-button:hover {
+    background-color: #c82333;
+}

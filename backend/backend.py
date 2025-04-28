@@ -10,7 +10,6 @@ import os
 import re
 from datetime import datetime, timedelta
 
-# Set JWT token to expire in 1 day
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -178,9 +177,12 @@ def login():
     if not user or not bcrypt.checkpw(password.encode('utf-8'), user.password_hash.encode('utf-8')):
         return jsonify({"error": "Invalid credentials"}), 401
 
-    token = create_access_token(identity=str(user.id))
+    role_obj = UserRole.query.get(user.role_id)
+    role = role_obj.role.lower() if role_obj else "unknown"
 
-    return jsonify({"message": "Login successful", "token": token})
+    token = create_access_token(identity=str(user.id))
+    return jsonify({"message": "Login successful", "token": token, "role": role})
+
 
 @app.route('/upload-receipt', methods=['POST'])
 @jwt_required()
@@ -426,7 +428,48 @@ def update_receipt_status(receipt_id):
 
     return jsonify({"message": f"Receipt status updated to {new_status}!"}), 200
 
+# Get all users (admin only)
+@app.route('/all-users', methods=['GET'])
+@jwt_required()
+def get_all_users():
+    user_id = int(get_jwt_identity())
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
 
+    role = UserRole.query.get(user.role_id)
+    if role.role.lower() != "admin":
+        return jsonify({"error": "Access forbidden"}), 403
+
+    users = User.query.all()
+    users_list = [{
+        "id": u.id,
+        "name": u.name,
+        "email": u.email,
+        "role": UserRole.query.get(u.role_id).role if u.role_id else "Unknown"
+    } for u in users]
+
+    return jsonify({"users": users_list}), 200
+
+# Update user role
+@app.route('/update-user-role/<int:user_id>', methods=['POST'])
+@jwt_required()
+def update_user_role(user_id):
+    data = request.get_json()
+    new_role = data.get('role')
+
+    role_obj = UserRole.query.filter_by(role=new_role).first()
+    if not role_obj:
+        return jsonify({"error": "Invalid role"}), 400
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    user.role_id = role_obj.id
+    db.session.commit()
+
+    return jsonify({"message": "User role updated successfully"}), 200
 
 # App Runner
 if __name__ == '__main__':

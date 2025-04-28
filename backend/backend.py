@@ -428,6 +428,22 @@ def update_receipt_status(receipt_id):
 
     return jsonify({"message": f"Receipt status updated to {new_status}!"}), 200
 
+@app.route('/audit-logs', methods=['GET'])
+@jwt_required()
+def get_audit_logs():
+    logs = ReceiptAudit.query.all()
+
+    audit_list = [{
+        'id': log.id,
+        'receipt_id': log.receipt_id,
+        'supervisor_id': log.supervisor_id,
+        'action': log.action,
+        'action_timestamp': log.action_timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+        'comments': log.comments
+    } for log in logs]
+
+    return jsonify({"audit_logs": audit_list})
+
 # Get all users (admin only)
 @app.route('/all-users', methods=['GET'])
 @jwt_required()

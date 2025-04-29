@@ -109,6 +109,39 @@ const ReceiptTile = ({ receipt, isSupervisor, refreshReceipts }) => {
                     </>
                 )}
             </div>
+
+            {localStorage.getItem("role") === "admin" && (
+                <button
+                    className="delete-button"
+                    onClick={async () => {
+                        if (window.confirm("Are you sure you want to delete this receipt?")) {
+                            try {
+                                const response = await fetch(`http://127.0.0.1:5000/delete-receipt/${receipt.id}`, {
+                                    method: "DELETE",
+                                    headers: {
+                                        "Authorization": `Bearer ${localStorage.getItem("token")}`
+                                    }
+                                });
+
+                                if (response.ok) {
+                                    alert("Receipt deleted.");
+                                    refreshReceipts();  // Trigger re-fetch
+                                } else {
+                                    alert("Failed to delete receipt.");
+                                }
+                            } catch (err) {
+                                console.error("Delete failed", err);
+                                alert("Error deleting receipt.");
+                            }
+                        }
+                    }}
+                >
+                    🗑 Delete
+                </button>
+            )}
+
+
+
         </div>
     );
 };

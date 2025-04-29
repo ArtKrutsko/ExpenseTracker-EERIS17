@@ -54,6 +54,31 @@ const Admin = () => {
         }
     };
 
+    const deleteUser = async (userId) => {
+        const confirmDelete = window.confirm("Are you sure you want to delete this account?");
+        if (!confirmDelete) return;
+    
+        try {
+            const response = await fetch(`http://127.0.0.1:5000/delete-user/${userId}`, {
+                method: "DELETE",
+                headers: {
+                    "Authorization": `Bearer ${localStorage.getItem("token")}`
+                }
+            });
+    
+            if (response.ok) {
+                alert("User deleted successfully.");
+                fetchUsers(); // Refresh the list
+            } else {
+                alert("Failed to delete user.");
+            }
+        } catch (error) {
+            console.error("Error deleting user", error);
+            alert("Error deleting user.");
+        }
+    };
+    
+
     useEffect(() => {
         fetchUsers();
     }, []);
@@ -80,6 +105,13 @@ const Admin = () => {
                             <option>Supervisor</option>
                             <option>Admin</option>
                         </select>
+                        <button
+                            className="delete-user-button"
+                            onClick={() => deleteUser(user.id)}
+                        >
+                            Delete User
+                        </button>
+
                     </div>
                 ))}
                 <button 

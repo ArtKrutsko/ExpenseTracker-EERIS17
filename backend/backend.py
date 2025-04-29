@@ -16,7 +16,7 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}}, supports_credentials=True)
 
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=1)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:Alessandro23@localhost/eeris'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:Sasuke%40123@localhost/eeris'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_SECRET_KEY'] = 'your_secret_key'
 app.config['JWT_IDENTITY_CLAIM'] = 'identity'
@@ -292,6 +292,28 @@ def fetch_receipts():
         "receipts": receipt_list,
         "role": role.role.lower()
     }), 200
+
+@app.route('/user-expense-history', methods=['GET'])
+@jwt_required()
+def user_expense_history():
+    user_id = int(get_jwt_identity())
+
+    receipts = Receipt.query.filter_by(user_id=user_id).order_by(Receipt.uploaded_at.desc()).all()
+    
+    history = []
+    for receipt in receipts:
+        items = ReceiptItem.query.filter_by(receipt_id=receipt.id).all()
+        history.append({
+            "receipt_id": receipt.id,
+            "store_name": receipt.store_name,
+            "category": receipt.category,
+            "amount": float(receipt.amount) if receipt.amount else 0.00,
+            "status": receipt.status,
+            "uploaded_at": receipt.uploaded_at.strftime('%Y-%m-%d %H:%M:%S'),
+            "items": [{"name": i.item_name, "amount": str(i.amount)} for i in items]
+        })
+
+    return jsonify({"history": history}), 200
 
 
 @app.route('/statistics', methods=['GET'])

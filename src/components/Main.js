@@ -5,6 +5,10 @@ import jsPDF from "jspdf";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { User } from "lucide-react"; // 🧩 Human Icon
+import autoTable from "jspdf-autotable";
+import html2canvas from "html2canvas";
+import Chart from "chart.js/auto";
+
 
 
 const categoryOptions = {
@@ -158,7 +162,8 @@ const Main = () => {
 
     const fetchAuditLogs = async () => {
         try {
-            const response = await fetch("http://127.0.0.1:5000/audit-logs", {
+            console.log("📡 Fetching user expense history...");
+            const response = await fetch("http://127.0.0.1:5000/user-expense-history", {
                 method: "GET",
                 headers: {
                     "Authorization": `Bearer ${localStorage.getItem("token")}`
@@ -166,41 +171,91 @@ const Main = () => {
             });
     
             const data = await response.json();
-            if (!data.audit_logs || data.audit_logs.length === 0) {
-                toast.info("No audit logs available.");
+            const logs = data.history;
+            console.log("✅ Fetched logs:", logs);
+    
+            if (!logs || logs.length === 0) {
+                toast.info("No expenses available.");
                 return;
             }
     
-            // ✅ Format nicely
-            const formattedLogs = data.audit_logs.map(log => 
-                `Receipt ID: ${log.receipt_id}, Supervisor ID: ${log.supervisor_id || 'None'}, Action: ${log.action}, Time: ${log.action_timestamp}, Comments: ${log.comments || 'None'}`
-            ).join("\n\n");
-    
-            // ✅ Display to user
-            alert(formattedLogs);
-    
-            // ✅ Create PDF
             const doc = new jsPDF();
-            doc.setFontSize(12);
-            let y = 10;
-            data.audit_logs.forEach((log, index) => {
-                const line = `#${index + 1}: ReceiptID: ${log.receipt_id}, SupervisorID: ${log.supervisor_id || "None"}, Action: ${log.action}, Time: ${log.action_timestamp}`;
-                doc.text(line, 10, y);
-                y += 10;
-                if (y > 270) { 
-                    doc.addPage();
-                    y = 10;
+            doc.text("Expense History", 14, 10);
+    
+            const tableData = logs.map((entry, i) => [
+                i + 1,
+                entry.store_name,
+                entry.category,
+                `$${parseFloat(entry.amount).toFixed(2)}`,
+                entry.status,
+                entry.uploaded_at
+            ]);
+    
+            console.log("📊 Creating table...");
+            autoTable(doc, {
+                startY: 20,
+                head: [["#", "Store", "Category", "Amount", "Status", "Uploaded"]],
+                body: tableData
+            });
+    
+            console.log("📈 Rendering chart in hidden container...");
+            const ctx = document.getElementById("chart-canvas").getContext("2d");
+    
+            // Group amounts by category
+            const categories = {};
+            logs.forEach(log => {
+                categories[log.category] = (categories[log.category] || 0) + parseFloat(log.amount);
+            });
+    
+            new Chart(ctx, {
+                type: "bar",
+                data: {
+                    labels: Object.keys(categories),
+                    datasets: [{
+                        label: "Amount Spent ($)",
+                        data: Object.values(categories),
+                        backgroundColor: "rgba(75, 192, 192, 0.6)",
+                        borderColor: "rgba(75, 192, 192, 1)",
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    animation: false,
+                    responsive: false,
+                    plugins: {
+                        legend: { display: false }
+                    }
                 }
             });
     
-            doc.save("audit_logs.pdf");
+            console.log("⏳ Waiting for chart render...");
+            await new Promise(resolve => setTimeout(resolve, 800));
+    
+            console.log("📷 Taking screenshot of chart-container...");
+            const chartContainer = document.getElementById("chart-container");
+    
+            html2canvas(chartContainer).then(canvas => {
+                const imgData = canvas.toDataURL("image/png");
+    
+                try {
+                    doc.addPage();
+                    doc.text("Spending by Category", 14, 15);
+                    doc.addImage(imgData, "JPEG", 10, 25, 180, 100);
+                    doc.save("my_expense_history.pdf");
+                } catch (error) {
+                    console.error("💥 Error adding image to PDF:", error);
+                    toast.error("Failed to embed chart in PDF.");
+                }
+            }).catch(err => {
+                console.error("💥 Error capturing chart div:", err);
+                toast.error("Chart rendering failed.");
+            });
     
         } catch (error) {
-            console.error("Error fetching audit logs:", error);
-            toast.error("Failed to fetch audit logs.");
+            console.error("🔥 Error in fetchAuditLogs:", error);
+            toast.error("Failed to generate PDF.");
         }
     };
-    
 
     const changePassword = async (currentPassword, newPassword) => {
         try {
@@ -506,6 +561,11 @@ const Main = () => {
                 draggable
                 pauseOnHover
             />
+
+             {/* 🔒 Hidden chart for PDF generation */}
+             <div id="chart-container" style={{ width: "600px", height: "400px", display: "none" }}>
+                <canvas id="chart-canvas" width="600" height="400"></canvas>
+            </div>
 
         </div>
     );

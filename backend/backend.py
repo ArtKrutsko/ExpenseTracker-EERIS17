@@ -428,6 +428,22 @@ def update_receipt_status(receipt_id):
 
     return jsonify({"message": f"Receipt status updated to {new_status}!"}), 200
 
+@app.route('/audit-logs', methods=['GET'])
+@jwt_required()
+def get_audit_logs():
+    logs = ReceiptAudit.query.all()
+
+    audit_list = [{
+        'id': log.id,
+        'receipt_id': log.receipt_id,
+        'supervisor_id': log.supervisor_id,
+        'action': log.action,
+        'action_timestamp': log.action_timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+        'comments': log.comments
+    } for log in logs]
+
+    return jsonify({"audit_logs": audit_list})
+
 # Get all users (admin only)
 @app.route('/all-users', methods=['GET'])
 @jwt_required()
@@ -470,6 +486,24 @@ def update_user_role(user_id):
     db.session.commit()
 
     return jsonify({"message": "User role updated successfully"}), 200
+
+@app.route('/change-password', methods=['POST'])
+@jwt_required()
+def change_password():
+    data = request.json
+    current_password = data.get('current_password')
+    new_password = data.get('new_password')
+
+    user_id = get_jwt_identity()['id']
+    user = User.query.get(user_id)
+
+    if not user or not bcrypt.checkpw(current_password.encode('utf-8'), user.password_hash.encode('utf-8')):
+        return jsonify({"error": "Current password is incorrect"}), 400
+
+    user.password_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    db.session.commit()
+
+    return jsonify({"message": "Password changed successfully!"})
 
 # App Runner
 if __name__ == '__main__':

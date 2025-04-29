@@ -72,6 +72,16 @@ const Main = () => {
 
             if (response.ok) {
                 alert("Receipt uploaded successfully!");
+                // Autofill the form with extracted data
+                setFormData((prevData) => ({
+                    ...prevData,
+                    store: data.extracted_data.vendor || "",
+                    items: [{
+                        name: "Extracted Item",  
+                        amount: data.extracted_data.amount || ""
+                    }]
+                }));
+                
             } else {
                 alert("Upload failed: " + data.error);
             }
@@ -81,6 +91,51 @@ const Main = () => {
         }
     };
 
+
+        // Fetch Audit Logs
+    const fetchAuditLogs = async () => {
+        try {
+            const response = await fetch("http://127.0.0.1:5000/audit-logs", {
+                method: "GET",
+                headers: {
+                    "Authorization": `Bearer ${localStorage.getItem("token")}`
+                }
+            });
+
+            const data = await response.json();
+            console.log(data.audit_logs);
+            alert(JSON.stringify(data.audit_logs, null, 2));
+        } catch (error) {
+            console.error("Error fetching audit logs:", error);
+        }
+    };
+
+    // Change Password
+    const changePassword = async (currentPassword, newPassword) => {
+        try {
+            const response = await fetch("http://127.0.0.1:5000/change-password", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${localStorage.getItem("token")}`
+                },
+                body: JSON.stringify({
+                    current_password: currentPassword,
+                    new_password: newPassword
+                })
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                alert(data.message);
+            } else {
+                alert("Error: " + data.error);
+            }
+        } catch (error) {
+            console.error("Password change error:", error);
+        }
+    };
+    
     return (
         <div>
             <div className="logout-container">
@@ -179,7 +234,29 @@ const Main = () => {
                 >
                     Admin Panel
                 </button>
+                
             )}
+
+            <button 
+                onClick={() => {
+                    const currentPassword = prompt("Enter your current password:");
+                    const newPassword = prompt("Enter your new password:");
+                    if (currentPassword && newPassword) {
+                        changePassword(currentPassword, newPassword);
+                    }
+                }}
+                className="input-field previous-uploads-button"
+            >
+                Change Password
+            </button>
+
+            <button 
+                onClick={fetchAuditLogs}
+                className="input-field previous-uploads-button"
+            >
+                View Audit Logs
+            </button>
+            
 
         </div>
     );

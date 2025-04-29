@@ -52,3 +52,18 @@
     border: 1px solid #ccc;
     font-size: 14px;
 }
+
+.delete-user-button {
+    background-color: #dc3545;
+    color: white;
+    padding: 8px 12px;
+    border: none;
+    border-radius: 6px;
+    margin-top: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.delete-user-button:hover {
+    background-color: #c82333;
+}

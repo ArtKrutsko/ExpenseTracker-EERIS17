@@ -67,7 +67,7 @@ const ReceiptTile = ({ receipt, isSupervisor, refreshReceipts }) => {
 
     const color = (localStatus === "Rejected")
         ? "#cccccc"
-        : (categoryColors[receipt.category] || "#f8f9fa");
+        : (categoryColors[receipt.category.toLowerCase()] || "#f8f9fa");
 
     return (
         <div 

@@ -10,13 +10,13 @@ import os
 import re
 from datetime import datetime, timedelta
 
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
 # Initialize Flask app
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}}, supports_credentials=True)
 
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=1)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:rhenmrj@localhost/eeris'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:Alessandro23@localhost/eeris'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_SECRET_KEY'] = 'your_secret_key'
 app.config['JWT_IDENTITY_CLAIM'] = 'identity'
@@ -191,8 +191,6 @@ def upload_receipt():
         return jsonify({"error": "No file uploaded"}), 400
 
     file = request.files['receipt']
-    user_id = int(get_jwt_identity())
-
     file_path = os.path.join(UPLOAD_FOLDER, file.filename)
     file.save(file_path)
 
@@ -201,29 +199,17 @@ def upload_receipt():
     if "error" in extracted_data:
         return jsonify({"error": extracted_data["error"]}), 400
 
-    # Insert the Receipt first
-    new_receipt = Receipt(
-        user_id=user_id,
-        amount=extracted_data["amount"],
-        extracted_text=extracted_data["raw_text"],
-        store_name=extracted_data["store_name"],
-        category=extracted_data["category"]
-    )
-    db.session.add(new_receipt)
-    db.session.flush()  # Get receipt ID
-
-    # Insert the Items
-    for item_name, item_price in extracted_data["items"]:
-        receipt_item = ReceiptItem(
-            receipt_id=new_receipt.id,
-            item_name=item_name,
-            amount=item_price
-        )
-        db.session.add(receipt_item)
-
-    db.session.commit()
-
-    return jsonify({"message": "Receipt uploaded and processed successfully!", "extracted_data": extracted_data})
+    # ⚡ Only return extracted data, do NOT insert into database here!
+    return jsonify({
+        "message": "OCR extraction successful",
+        "store_name": extracted_data["store_name"],
+        "category": extracted_data["category"],
+        "total_amount": extracted_data["amount"],
+        "items": [
+            {"name": item_name, "amount": item_price}
+            for item_name, item_price in extracted_data["items"]
+        ]
+    }), 200
 
 
 @app.route('/manual-receipt', methods=['POST'])
@@ -287,7 +273,7 @@ def fetch_receipts():
     if not role:
         return jsonify({"error": "User role not found"}), 404
 
-    if role.role.lower() == 'supervisor':
+    if role.role.lower() in ['supervisor', 'admin']:
         receipts = Receipt.query.all()
     else:
         receipts = Receipt.query.filter_by(user_id=user_id).all()
@@ -323,12 +309,12 @@ def get_statistics():
         return jsonify({"error": "User role not found"}), 404
 
     # Supervisor sees all receipts, employee sees only their own
-    if role.role.lower() == 'supervisor':
+    if role.role.lower() in ['supervisor', 'admin']:
         receipts = Receipt.query.all()
     else:
         receipts = Receipt.query.filter_by(user_id=user_id).all()
 
-    # ✅ EXCLUDE rejected receipts from calculations
+    # ✅ EXCLUDE rejected receipts from CATEGORY calculations (but not from status counts)
     valid_receipts = [r for r in receipts if r.status.lower() != 'rejected']
 
     # Group and Sum by Category
@@ -343,8 +329,17 @@ def get_statistics():
         "category_totals": category_totals
     }
 
+    # ✅ Count all receipt statuses
+    approvals = sum(1 for r in receipts if r.status.lower() == 'approved')
+    rejections = sum(1 for r in receipts if r.status.lower() == 'rejected')
+    pending = sum(1 for r in receipts if r.status.lower() == 'pending')
+
+    response["approvals"] = approvals
+    response["rejections"] = rejections
+    response["pending"] = pending
+
     # Supervisor extras: by store and by user
-    if role.role.lower() == 'supervisor':
+    if role.role.lower() in ['supervisor', 'admin']:
         # Group and Sum by Store
         store_totals = {}
         store_categories = {}
@@ -366,16 +361,16 @@ def get_statistics():
         # Find the main (max) category for each store
         store_main_categories = {}
         for store, cats in store_categories.items():
-            if cats:  # ✅ only if there are categories
+            if cats:
                 main_cat = max(cats.items(), key=lambda x: x[1])[0]
                 store_main_categories[store] = main_cat
             else:
-                store_main_categories[store] = "unknown"  # ✅ fallback if no categories
+                store_main_categories[store] = "unknown"
 
         response["store_totals"] = store_totals
         response["store_main_categories"] = store_main_categories
 
-    # ✅ NEW: Group and Sum by User
+    # Group and Sum by User
     user_totals = {}
     for r in valid_receipts:
         user_obj = User.query.get(r.user_id)
@@ -427,6 +422,27 @@ def update_receipt_status(receipt_id):
     db.session.commit()
 
     return jsonify({"message": f"Receipt status updated to {new_status}!"}), 200
+
+@app.route('/delete-receipt/<int:receipt_id>', methods=['DELETE'])
+@jwt_required()
+def delete_receipt(receipt_id):
+    user_id = int(get_jwt_identity())
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    role = UserRole.query.get(user.role_id)
+    if role.role.lower() != "admin":
+        return jsonify({"error": "Only admins can delete receipts"}), 403
+
+    receipt = Receipt.query.get(receipt_id)
+    if not receipt:
+        return jsonify({"error": "Receipt not found"}), 404
+
+    db.session.delete(receipt)
+    db.session.commit()
+    return jsonify({"message": "Receipt deleted successfully"}), 200
+
 
 @app.route('/audit-logs', methods=['GET'])
 @jwt_required()
@@ -494,19 +510,62 @@ def change_password():
     current_password = data.get('current_password')
     new_password = data.get('new_password')
 
-    user_id = get_jwt_identity()['id']
-    user = User.query.get(user_id)
+    user_id = get_jwt_identity()  # ✅ CORRECT (no ['id'])
+    user = User.query.get(int(user_id))  # ✅ safer with int()
 
-    if not user or not bcrypt.checkpw(current_password.encode('utf-8'), user.password_hash.encode('utf-8')):
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    # Check if current password is correct
+    if not bcrypt.checkpw(current_password.encode('utf-8'), user.password_hash.encode('utf-8')):
         return jsonify({"error": "Current password is incorrect"}), 400
 
+    # Hash and save the new password
     user.password_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     db.session.commit()
 
     return jsonify({"message": "Password changed successfully!"})
 
+@app.route('/delete-account', methods=['DELETE'])
+@jwt_required()
+def delete_account():
+    user_id = int(get_jwt_identity())
+    user = User.query.get(user_id)
+
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    db.session.delete(user)
+    db.session.commit()
+
+    return jsonify({"message": "Account deleted successfully!"}), 200
+
+@app.route('/delete-user/<int:user_id>', methods=['DELETE'])
+@jwt_required()
+def delete_user_by_admin(user_id):
+    current_user_id = int(get_jwt_identity())
+    current_user = User.query.get(current_user_id)
+    role = UserRole.query.get(current_user.role_id)
+    
+    if not current_user or not role or role.role.lower() != "admin":
+        return jsonify({"error": "Unauthorized"}), 403
+
+    if user_id == current_user_id:
+        return jsonify({"error": "Cannot delete your own account."}), 400
+
+    user_to_delete = User.query.get(user_id)
+    if not user_to_delete:
+        return jsonify({"error": "User not found"}), 404
+
+    db.session.delete(user_to_delete)
+    db.session.commit()
+    return jsonify({"message": "User deleted successfully!"}), 200
+
+
 # App Runner
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
+    app.run(debug=True)
+
     app.run(debug=True)

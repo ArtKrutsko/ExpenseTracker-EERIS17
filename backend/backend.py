@@ -9,6 +9,11 @@ import cv2
 import os
 import re
 from datetime import datetime, timedelta
+from io import BytesIO
+from flask import send_file
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
+from reportlab.lib import colors
 
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 # Initialize Flask app
@@ -182,6 +187,35 @@ def login():
 
     token = create_access_token(identity=str(user.id))
     return jsonify({"message": "Login successful", "token": token, "role": role})
+
+@app.route('/all-expense-history', methods=['GET'])
+@jwt_required()
+def all_expense_history():
+    user_id = int(get_jwt_identity())
+    user = User.query.get(user_id)
+    role = UserRole.query.get(user.role_id)
+
+    if not role or role.role.lower() not in ['admin', 'supervisor']:
+        return jsonify({"error": "Access denied"}), 403
+
+    receipts = Receipt.query.order_by(Receipt.uploaded_at.desc()).all()
+    history = []
+
+    for receipt in receipts:
+        user = User.query.get(receipt.user_id)
+        items = ReceiptItem.query.filter_by(receipt_id=receipt.id).all()
+        history.append({
+            "user_name": user.name if user else "Unknown User",
+            "receipt_id": receipt.id,
+            "store_name": receipt.store_name,
+            "category": receipt.category,
+            "amount": float(receipt.amount) if receipt.amount else 0.00,
+            "status": receipt.status,
+            "uploaded_at": receipt.uploaded_at.strftime('%Y-%m-%d %H:%M:%S'),
+            "items": [{"name": i.item_name, "amount": str(i.amount)} for i in items]
+        })
+
+    return jsonify({"history": history}), 200
 
 
 @app.route('/upload-receipt', methods=['POST'])

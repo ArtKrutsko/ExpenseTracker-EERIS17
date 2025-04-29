@@ -162,8 +162,14 @@ const Main = () => {
 
     const fetchAuditLogs = async () => {
         try {
-            console.log("📡 Fetching user expense history...");
-            const response = await fetch("http://127.0.0.1:5000/user-expense-history", {
+            const role = localStorage.getItem("role");
+            const endpoint = role === "admin" || role === "supervisor"
+                ? "http://127.0.0.1:5000/all-expense-history"
+                : "http://127.0.0.1:5000/user-expense-history";
+    
+            console.log(`📡 Fetching expense history for ${role}...`);
+    
+            const response = await fetch(endpoint, {
                 method: "GET",
                 headers: {
                     "Authorization": `Bearer ${localStorage.getItem("token")}`
@@ -184,6 +190,7 @@ const Main = () => {
     
             const tableData = logs.map((entry, i) => [
                 i + 1,
+                role === "admin" || role === "supervisor" ? entry.user_name : undefined,
                 entry.store_name,
                 entry.category,
                 `$${parseFloat(entry.amount).toFixed(2)}`,
@@ -191,17 +198,20 @@ const Main = () => {
                 entry.uploaded_at
             ]);
     
+            const headColumns = role === "admin" || role === "supervisor"
+                ? ["#", "User", "Store", "Category", "Amount", "Status", "Uploaded"]
+                : ["#", "Store", "Category", "Amount", "Status", "Uploaded"];
+    
             console.log("📊 Creating table...");
             autoTable(doc, {
                 startY: 20,
-                head: [["#", "Store", "Category", "Amount", "Status", "Uploaded"]],
+                head: [headColumns],
                 body: tableData
             });
     
             console.log("📈 Rendering chart in hidden container...");
             const ctx = document.getElementById("chart-canvas").getContext("2d");
     
-            // Group amounts by category
             const categories = {};
             logs.forEach(log => {
                 categories[log.category] = (categories[log.category] || 0) + parseFloat(log.amount);
@@ -241,7 +251,7 @@ const Main = () => {
                     doc.addPage();
                     doc.text("Spending by Category", 14, 15);
                     doc.addImage(imgData, "JPEG", 10, 25, 180, 100);
-                    doc.save("my_expense_history.pdf");
+                    doc.save("expense_history.pdf");
                 } catch (error) {
                     console.error("💥 Error adding image to PDF:", error);
                     toast.error("Failed to embed chart in PDF.");
@@ -256,6 +266,7 @@ const Main = () => {
             toast.error("Failed to generate PDF.");
         }
     };
+    
 
     const changePassword = async (currentPassword, newPassword) => {
         try {
